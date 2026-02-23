@@ -1,0 +1,98 @@
+[
+  {
+    "word": "題名",
+    "type": "reading",
+    "question": "「題名」？",
+    "choices": [
+      "だいめお",
+      "だいめい",
+      "だめい",
+      "たいめい"
+    ],
+    "answer_index": 1
+  },
+  {
+    "word": "目上",
+    "type": "reading",
+    "question": "「目上」？",
+    "choices": [
+      "めうえい",
+      "めえ",
+      "めうえう",
+      "めうえ"
+    ],
+    "answer_index": 3
+  },
+  {
+    "word": "成分",
+    "type": "reading",
+    "question": "「成分」？",
+    "choices": [
+      "せいぶん",
+      "せいぶんう",
+      "ぜいぶん",
+      "せいぶんい"
+    ],
+    "answer_index": 0
+  },
+  {
+    "word": "毛糸",
+    "type": "reading",
+    "question": "「毛糸」？",
+    "choices": [
+      "けと",
+      "げいと",
+      "けいと",
+      "けいど"
+    ],
+    "answer_index": 2
+  },
+  {
+    "word": "酌む",
+    "type": "reading",
+    "question": "「酌む」？",
+    "choices": [
+      "くむ",
+      "ぐむ",
+      "っむ",
+      "くむう"
+    ],
+    "answer_index": 0
+  },
+  {
+    "word": "中世",
+    "type": "reading",
+    "question": "「中世」？",
+    "choices": [
+      "ちゅうせ",
+      "ちゅせい",
+      "ちゅうぜい",
+      "ちゅうせい"
+    ],
+    "answer_index": 3
+  },
+  {
+    "word": "雨戸",
+    "type": "reading",
+    "question": "「雨戸」？",
+    "choices": [
+      "あまどい",
+      "あまどう",
+      "あまと",
+      "あまど"
+    ],
+    "answer_index": 3
+  },
+  {
+    "word": "矢印",
+    "type": "reading",
+    "question": "「矢印」？",
+    "choices": [
+      "やじるしい",
+      "やしるし",
+      "やじるしう",
+      "やじるし"
+    ],
+    "answer_index": 3
+  }
+]

@@ -1,0 +1,98 @@
+[
+  {
+    "word": "題名",
+    "type": "reading",
+    "question": "「題名」の読み方はどれですか？",
+    "choices": [
+      "だめい",
+      "だいめう",
+      "だいめい",
+      "たいめい"
+    ],
+    "answer_index": 2
+  },
+  {
+    "word": "目上",
+    "type": "reading",
+    "question": "「目上」の読み方はどれですか？",
+    "choices": [
+      "めえ",
+      "めうえ",
+      "めうえう",
+      "めうえい"
+    ],
+    "answer_index": 1
+  },
+  {
+    "word": "成分",
+    "type": "reading",
+    "question": "「成分」の読み方はどれですか？",
+    "choices": [
+      "せいぶんう",
+      "せいぶんい",
+      "せいぶん",
+      "せぶん"
+    ],
+    "answer_index": 2
+  },
+  {
+    "word": "毛糸",
+    "type": "reading",
+    "question": "「毛糸」の読み方はどれですか？",
+    "choices": [
+      "けと",
+      "げいと",
+      "けいとう",
+      "けいと"
+    ],
+    "answer_index": 3
+  },
+  {
+    "word": "酌む",
+    "type": "reading",
+    "question": "「酌む」の読み方はどれですか？",
+    "choices": [
+      "ぐむ",
+      "くむい",
+      "くむ",
+      "くむう"
+    ],
+    "answer_index": 2
+  },
+  {
+    "word": "中世",
+    "type": "reading",
+    "question": "「中世」の読み方はどれですか？",
+    "choices": [
+      "ぢゅうせい",
+      "ちゅせい",
+      "ちゅうせい",
+      "ちゅうせ"
+    ],
+    "answer_index": 2
+  },
+  {
+    "word": "雨戸",
+    "type": "reading",
+    "question": "「雨戸」の読み方はどれですか？",
+    "choices": [
+      "あまと",
+      "あまどう",
+      "あまどい",
+      "あまど"
+    ],
+    "answer_index": 3
+  },
+  {
+    "word": "矢印",
+    "type": "reading",
+    "question": "「矢印」の読み方はどれですか？",
+    "choices": [
+      "やじるしう",
+      "やじるし",
+      "やじるしい",
+      "やしるし"
+    ],
+    "answer_index": 1
+  }
+]
