@@ -57,3 +57,15 @@ def generate_reading_distractors(furigana: str):
             final_traps.append(fallback)
 
     return final_traps[:3]
+
+def get_semantic_distractors(target_word, target_level, all_vocab, count=3):
+    candidates = [
+        item['word'] for item in all_vocab 
+        if item.get('level') == target_level and item.get('word') != target_word
+    ]
+    
+    if len(candidates) < count:
+        candidates = [item['word'] for item in all_vocab if item.get('word') != target_word]
+        
+    random.shuffle(candidates)
+    return candidates[:count]
