@@ -1,6 +1,8 @@
 # src/pipeline.py
+import os
+from time import sleep
 from src.llm_client import call_ai_for_json
-from src.prompts import SYSTEM_PROMPT, CONTEXT_QUIZ_PROMPT, USAGE_QUIZ_PROMPT
+from src.prompts import SYSTEM_PROMPT, BATCH_USER_PROMPT
 from src.distractors import get_semantic_distractors
 import json
 import random
@@ -15,55 +17,144 @@ def shuffle_quiz(correct_answer, distractors):
     correct_index = options.index(correct_answer)
     return options, correct_index
 
-def test_llm_quiz():
-    all_vocab = [
-        {"word": "題名", "furigana": "だいめい", "meaning": "title", "level": 2},
-        {"word": "でたらめ", "furigana": "でたらめ", "meaning": "nonsense/random", "level": 2},
-        {"word": "いきなり", "furigana": "いきなり", "meaning": "suddenly", "level": 2},
-        {"word": "心得る", "furigana": "こころえる", "meaning": "to understand", "level": 2}
-    ]
+def load_input(level):
+    input_path = os.path.join("data", "vocab_json", f"n{level}.json")
     
-    target = all_vocab[0]
-    print(f"Call AI api for: {target['word']}...")
+    if not os.path.exists(input_path):
+        print(f"Input file not found: {input_path}")
+        return []
+    
+    with open(input_path, 'r', encoding='utf-8') as f:
+        try:
+            data = json.load(f)
+            return data
+        except json.JSONDecodeError:
+            print(f"Error decoding JSON from: {input_path}")
+            return []
 
-    # --- QUIZ CONTEXT ---
-    context_prompt = CONTEXT_QUIZ_PROMPT.format(
-        word=target['word'], furigana=target['furigana'], meaning=target['meaning'], level=target['level']
-    )
-    context_data = call_ai_for_json(SYSTEM_PROMPT, context_prompt)
+def save_quiz_to_file(quiz_data, quiz_type, level):
+    output_dir = os.path.join("data", "output", f"n{level}")
     
-    if context_data:
-        distractors = get_semantic_distractors(target['word'], target['level'], all_vocab)
-        choices, correct_idx = shuffle_quiz(target['word'], distractors)
+    os.makedirs(output_dir, exist_ok=True)
+    
+    file_path = os.path.join(output_dir, f"{quiz_type}.json")
+    
+    existing_data = []
+    
+    if os.path.exists(file_path):
+        with open(file_path, 'r', encoding='utf-8') as f:
+            try:
+                existing_data = json.load(f)
+            except json.JSONDecodeError:
+                existing_data = []
+                
+    existing_data.append(quiz_data)
+    
+    with open(file_path, 'w', encoding='utf-8') as f:
+        json.dump(existing_data, f, ensure_ascii=False, indent=2)
         
-        context_quiz = {
-            "type": "context",
-            "prompt": "（____）に入る語は？",
-            "sentence": context_data.get("sentence"),
-            "choices": choices,
-            "answer_index": correct_idx,
-            "explanation": context_data.get("explanation")
-        }
-        print("\n=== RESULT CONTEXT ===")
-        print(json.dumps(context_quiz, ensure_ascii=False, indent=2))
+    print(f"Saved to: {file_path}")
+
+def _load_processed_words(level):
+    out_dir = os.path.join("data", "output", f"n{level}")
+    processed = set()
+
+    for quiz_type in ("context", "usage"):
+        file_path = os.path.join(out_dir, f"{quiz_type}.json")
+        if os.path.exists(file_path):
+            with open(file_path, 'r', encoding='utf-8') as f:
+                try:
+                    items = json.load(f)
+                    for it in items:
+                        if isinstance(it, dict) and it.get("word"):
+                            processed.add(it.get("word"))
+                except json.JSONDecodeError:
+                    continue
+
+    return processed
 
 
-    # --- QUIZ USAGE ---
-    usage_prompt = USAGE_QUIZ_PROMPT.format(
-        word=target['word'], furigana=target['furigana'], meaning=target['meaning'], level=target['level']
-    )
-    usage_data = call_ai_for_json(SYSTEM_PROMPT, usage_prompt)
-    
-    if usage_data:
-        usage_quiz = {
-            "type": "usage",
-            "prompt": f"「{target['word']}の使い方は？。",
-            "choices": usage_data.get("sentences"),
-            "answer_index": usage_data.get("answer_index"),
-            "explanation": usage_data.get("explanation")
-        }
-        print("\n=== RESULT USAGE ===")
-        print(json.dumps(usage_quiz, ensure_ascii=False, indent=2))
+def run(level, limit, batch_size=4):
+    all_vocab = load_input(level)
+
+    if not all_vocab:
+        print("No vocabulary loaded. Aborting.")
+        return
+
+    processed = _load_processed_words(level)
+
+    worklist = [w for w in all_vocab if w.get('word') not in processed]
+
+    if limit:
+        worklist = worklist[:limit]
+
+    total = len(worklist)
+    if total == 0:
+        print("Nothing to process — all words already processed.")
+        return
+
+    print(f"Processing {total} words in batches of {batch_size} (level N{level})")
+
+    for batch_start in range(0, total, batch_size):
+        batch = worklist[batch_start:batch_start+batch_size]
+        idx_range = f"{batch_start+1}-{batch_start+len(batch)}"
+        print(f"Processing batch {idx_range} ({len(batch)} words)")
+
+        items = []
+        for t in batch:
+            items.append({
+                "word": t.get('word'),
+                "furigana": t.get('furigana', ''),
+                "meaning": t.get('meaning', ''),
+                "level": level
+            })
+
+        user_prompt = BATCH_USER_PROMPT.format(items=json.dumps(items, ensure_ascii=False, indent=2))
+
+        try:
+            response = call_ai_for_json(SYSTEM_PROMPT, user_prompt)
+
+            if not response:
+                print("No response or failed to parse JSON from AI for this batch.")
+                continue
+
+            for item in response:
+                word = item.get('word')
+                if not word:
+                    print("Skipping malformed item without 'word'")
+                    continue
+
+                # context
+                ctx = item.get('context') or {}
+                distractors = get_semantic_distractors(word, level, all_vocab)
+                choices, correct_idx = shuffle_quiz(word, distractors)
+
+                quiz_context = {
+                    "word": word,
+                    "type": "context",
+                    "sentence": ctx.get('sentence'),
+                    "choices": choices,
+                    "answer_index": correct_idx
+                }
+                save_quiz_to_file(quiz_context, "context", level)
+
+                # usage
+                usage = item.get('usage') or {}
+                usage_item = {
+                    "word": word,
+                    "type": "usage",
+                    "choices": usage.get('sentences'),
+                    "answer_index": usage.get('answer_index')
+                }
+                save_quiz_to_file(usage_item, "usage", level)
+
+            sleep(20)
+
+        except Exception as e:
+            print(f"Error processing batch {idx_range}: {e}")
+            continue
+
+
 
 if __name__ == "__main__":
-    test_llm_quiz()
+    run(level=5, limit=2)
