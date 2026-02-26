@@ -4,6 +4,7 @@ from time import sleep
 from src.llm_client import call_ai_for_json
 from src.prompts import SYSTEM_PROMPT, BATCH_USER_PROMPT
 from src.distractors import get_semantic_distractors
+from src import constants
 import json
 import random
 
@@ -18,7 +19,7 @@ def shuffle_quiz(correct_answer, distractors):
     return options, correct_index
 
 def load_input(level):
-    input_path = os.path.join("data", "vocab_json", f"n{level}.json")
+    input_path = constants.vocab_path(level)
     
     if not os.path.exists(input_path):
         print(f"Input file not found: {input_path}")
@@ -33,7 +34,7 @@ def load_input(level):
             return []
 
 def save_quiz_to_file(quiz_data, quiz_type, level):
-    output_dir = os.path.join("data", "output", f"n{level}")
+    output_dir = constants.output_dir_for(level)
     
     os.makedirs(output_dir, exist_ok=True)
     
@@ -153,8 +154,3 @@ def run(level, limit, batch_size=4):
         except Exception as e:
             print(f"Error processing batch {idx_range}: {e}")
             continue
-
-
-
-if __name__ == "__main__":
-    run(level=5, limit=2)
