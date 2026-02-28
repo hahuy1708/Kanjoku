@@ -7,6 +7,7 @@ from src.distractors import get_semantic_distractors
 from src import constants
 import json
 import random
+import re
 
 def shuffle_quiz(correct_answer, distractors):
     options = list(dict.fromkeys(distractors + [correct_answer]))
@@ -73,6 +74,17 @@ def _load_processed_words(level):
                     continue
 
     return processed
+
+def _validate_usage_sentences(sentences, word):
+    if not sentences or len(sentences) != 4:
+        return False, f"Expected 4 sentences, got {len(sentences) if sentences else 0}"
+    
+    for i, s in enumerate(sentences):
+        # Check if exists blank 
+        if "____" in s or "（　）" in s or "＿＿＿＿" in s or re.search(r'_{2,}', s):
+            return False, f"Sentence {i} contains a blank: {s}"
+    
+    return True, ""
 
 
 def run(level, limit, batch_size=4):
@@ -141,12 +153,18 @@ def run(level, limit, batch_size=4):
 
                 # usage
                 usage = item.get('usage') or {}
-                usage_item = {
-                    "word": word,
-                    "type": "usage",
-                    "choices": usage.get('sentences'),
-                    "answer_index": usage.get('answer_index')
-                }
+                sentences = usage.get('sentences') or []
+                is_valid, reason = _validate_usage_sentences(sentences, word)
+                if not is_valid:
+                    print(f"Invalid usage sentences for word '{word}': {reason}")
+                    continue
+                else:
+                    usage_item = {
+                        "word": word,
+                        "type": "usage",
+                        "choices": usage.get('sentences'),
+                        "answer_index": usage.get('answer_index')
+                    }
                 save_quiz_to_file(usage_item, "usage", level)
 
             sleep(20)

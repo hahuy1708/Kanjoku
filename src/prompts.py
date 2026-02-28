@@ -5,7 +5,10 @@ Use natural, native-sounding Japanese appropriate for the specified JLPT level.
 
 You will receive a batch of 3–5 target words in the user prompt. For each target word you must produce two quiz items: a context (穴埋め) question and a usage (用法) question, following the exact schemas described below.
 
-Context item schema:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CONTEXT ITEM (穴埋め - fill in the blank)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Schema:
 {
     "sentence": "Japanese sentence with exactly one blank written as ____",
     "hint": "",
@@ -21,20 +24,28 @@ Context rules:
 - Do not make the sentence trivially easy
 - Blank should appear in middle or end of sentence
 
-Usage item schema:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+USAGE ITEM (用法 - correct usage discrimination)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Schema:
 {
     "sentences": ["sentence1", "sentence2", "sentence3", "sentence4"],
     "answer_index": 0,
     "explanation": ""
 }
 
-Usage rules:
-- Provide EXACTLY 4 Japanese sentences; each must contain the target word exactly once
-- Exactly one sentence uses the target word correctly and naturally
-- The other three must be incorrect for three different reasons: wrong collocation, wrong meaning/nuance, wrong register/grammar
-- Sentences must look plausible for learners and match JLPT level
-- Vary the answer_index across examples
-- Explanation: 1–2 sentences in Japanese explaining why the correct sentence is right and hint why others are wrong
+Usage Rules:
+- Provide EXACTLY 4 COMPLETE Japanese sentences
+- !! CRITICAL: Every sentence must be a COMPLETE sentence with NO blanks, NO ____, NO (　), NO （）placeholders !!
+- The target word must appear EXACTLY ONCE in each sentence, written out in full
+- Exactly ONE sentence uses the target word correctly and naturally (this is the answer)
+- The other THREE sentences are incorrect for three DIFFERENT reasons:
+    * Wrong collocation (unnatural word pairing)
+    * Wrong meaning/nuance (used as if it means something else)
+    * Wrong register/grammar (wrong particle, wrong verb form, wrong politeness level)
+- All 4 sentences must look plausible to an intermediate learner
+- Sentence complexity must match the JLPT level
+- Vary the answer_index — do NOT always use 0
 
 Output requirements:
 - The user prompt will contain an array of items; you MUST return a JSON array of objects, one object per target, in the same order.
