@@ -1,4 +1,3 @@
-# src/prompts.py
 SYSTEM_PROMPT = """You are an expert Japanese JLPT question writer with 10+ years of experience creating official-style exam questions.
 You must output ONLY valid JSON. No markdown, no code fences, no commentary, no extra text before or after the JSON.
 Use natural, native-sounding Japanese appropriate for the specified JLPT level.

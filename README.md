@@ -3,7 +3,7 @@
 ![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)
 ![Type](https://img.shields.io/badge/focus-JLPT%20N1--N5-orange.svg)
 
-Kanjoku is a lightweight project designed to generate JLPT-style quizzes from JLPT vocabulary JSON files.
+Kanjoku is a lightweight project designed to gene is a lightweight project designed torate JLP-style quizzes from JLPT vocabulary JSON files.
 
 ## Folder structure
 
@@ -12,11 +12,17 @@ data/
 	vocab_json/     # Input JLPT vocab JSON files (n1.json..n5.json)
 	output/         # Generated quiz JSON files
 src/
-	distractors.py  # Reading + semantic distractors
-	prompts.py      # Strict JSON prompts for LLM
-	llm_client.py   # OpenAI / Gemini client
-	pipeline.py     # Main pipeline: JSON -> LLM -> JSON
-    quiz_reading.py # Local reading quiz generator (long vowels, sokuon, dakuon)
+	constants.py
+	reading/
+		quiz.py         # Reading quiz runner
+		distractors.py  # High-quality JMdict-based reading distractors
+		utils.py        # Mora tools, okurigana, phonetic scoring
+	context/
+		quiz.py         # Context module scaffold
+	usage/
+		pipeline.py     # Usage quiz generation pipeline (LLM)
+		prompts.py      # Prompt templates
+		llm_client.py   # Gemini client
 ```
 
 ## Install
@@ -43,25 +49,50 @@ pip install -r requirements.txt
 GEMINI_API_KEY=your-gemini-key
 ```
 
-### Generate Reading Quizzes
+### Generate Reading Quiz (local, no LLM)
 
 ```bash
-python src/quiz_reading.py
+python main.py --level 2 --mode reading
 ```
 
-### Generate Context & Usage Quizzes (LLM Required)
+### Generate Usage Quiz (LLM)
 
 ```bash
-python src/pipeline.py
+python main.py --level 2 --mode usage --batch 4
+```
+
+### Compatibility alias
+
+`--mode ai` is kept as an alias of `--mode usage`.
+
+```bash
+python main.py --level 2 --mode ai --batch 4
+```
+
+### Generate all currently implemented flows
+
+```bash
+python main.py --level 2 --mode all
+```
+
+### Optional flags
+
+```bash
+python main.py --level 2 --mode reading --limit 40
+python main.py --level 2 --mode usage --limit 20 --batch 4
 ```
 
 ## Question types
 
-- **Reading**: Kanji -> Reading (hiragana). Distractors are generated locally (long vowels / sokuon / dakuon).
-- **Context**: One Japanese sentence with a blank (`____`). Pick the correct word.
-- **Usage**: 4 Japanese sentences. Choose the one that uses the target word correctly.
+- **Reading**: Kanji -> Reading (hiragana), generated locally using JMdict constraints.
+- **Context**: Module scaffold is present but generation flow is not implemented yet.
+- **Usage**: 4 Japanese sentences; choose the sentence that uses the target word correctly.
 
-## 
+## Notes
+
+- Reading is fully local and does not require API calls.
+- Usage requires a valid `GEMINI_API_KEY`.
+- Output files are written to `data/output/n{level}/`.
 
 
 ## Data sources & Credits
