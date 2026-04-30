@@ -3,7 +3,7 @@
 ![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)
 ![Type](https://img.shields.io/badge/focus-JLPT%20N1--N5-orange.svg)
 
-Kanjoku is a lightweight project designed to gene is a lightweight project designed torate JLP-style quizzes from JLPT vocabulary JSON files.
+Kanjoku is a lightweight project designed to gene is a lightweight project designed torate JLPT-style quizzes from JLPT vocabulary JSON files.
 
 ## Folder structure
 
@@ -11,18 +11,19 @@ Kanjoku is a lightweight project designed to gene is a lightweight project desig
 data/
 	vocab_json/     # Input JLPT vocab JSON files (n1.json..n5.json)
 	output/         # Generated quiz JSON files
+	tatoeba/        # Tatoeba sentence data and built database
+		jpn_sentences.tsv
+		jpn_indices.csv
+		tatoeba.db
+scripts/
+	build_tatoeba_db.py  # Script to build the Tatoeba SQLite database
 src/
 	constants.py
 	reading/
-		quiz.py         # Reading quiz runner
-		distractors.py  # High-quality JMdict-based reading distractors
-		utils.py        # Mora tools, okurigana, phonetic scoring
 	context/
-		quiz.py         # Context module scaffold
 	usage/
-		pipeline.py     # Usage quiz generation pipeline (LLM)
-		prompts.py      # Prompt templates
-		llm_client.py   # Gemini client
+	constants.py
+main.py
 ```
 
 ## Install
@@ -41,58 +42,37 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Usage
-
 ### Create your `.env` file with your Gemini API key
 
 ```bash
 GEMINI_API_KEY=your-gemini-key
 ```
 
-### Generate Reading Quiz (local, no LLM)
+## Generate Quiz
+
+### Reading Quiz (Jamdict)
 
 ```bash
-python main.py --level 2 --mode reading
+python main.py --level 2 --mode reading --limit <number_of_questions>
 ```
 
-### Generate Usage Quiz (LLM)
+### Usage Quiz (LLM)
 
 ```bash
-python main.py --level 2 --mode usage --batch 4
+python main.py --level 2 --mode usage --limit <number_of_questions> --batch 4
 ```
 
-### Compatibility alias
-
-`--mode ai` is kept as an alias of `--mode usage`.
+### Context Quiz (Tatoeba)
 
 ```bash
-python main.py --level 2 --mode ai --batch 4
-```
-
-### Generate all currently implemented flows
-
-```bash
-python main.py --level 2 --mode all
-```
-
-### Optional flags
-
-```bash
-python main.py --level 2 --mode reading --limit 40
-python main.py --level 2 --mode usage --limit 20 --batch 4
+python main.py --level 2 --mode context --limit <number_of_questions>
 ```
 
 ## Question types
 
 - **Reading**: Kanji -> Reading (hiragana), generated locally using JMdict constraints.
-- **Context**: Module scaffold is present but generation flow is not implemented yet.
+- **Context**: Fill-in-the-blank from real sentences; the target word is removed and becomes the answer. Distractors are generated from similar words in JMdict.
 - **Usage**: 4 Japanese sentences; choose the sentence that uses the target word correctly.
-
-## Notes
-
-- Reading is fully local and does not require API calls.
-- Usage requires a valid `GEMINI_API_KEY`.
-- Output files are written to `data/output/n{level}/`.
 
 
 ## Data sources & Credits
