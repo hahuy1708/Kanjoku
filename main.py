@@ -11,9 +11,15 @@ def parse_args():
     p.add_argument("--limit", type=int, default=0, help="Limit number of words to process (0 = no limit)")
     p.add_argument(
         "--mode",
-        choices=("all", "reading", "usage", "ai", "context"),
+        choices=("all", "local", "reading", "context", "ai", "usage"),
         default="all",
-        help="Mode: all(reading+usage) | reading | usage(ai alias) | context(scaffold)",
+        help=(
+            "all     = reading + context + ai usage\n"
+            "local   = reading + context (no LLM)\n"
+            "reading = only reading quiz\n"
+            "context = only context quiz\n"
+            "ai      = only usage quiz (LLM)\n"
+        ),
     )
     p.add_argument("--batch", type=int, default=4, help="Batch size for AI calls (applies when --mode=ai or all)")
     return p.parse_args()
@@ -23,7 +29,7 @@ def main():
     level = args.level
     limit = args.limit or None
 
-    if args.mode in ("all", "reading"):
+    if args.mode in ("all", "local", "reading"):
         print(f"Running reading quiz for N{level} (limit={limit})")
         run_reading(
             level=level,
@@ -32,12 +38,19 @@ def main():
             limit=limit,
         )
 
-    if args.mode in ("all", "usage", "ai"):
+    if args.mode in ("all", "local", "context"):
+        print(f"Running context quiz for N{level} (limit={limit})")
+        run_context(
+            level=level,
+            vocab_path=constants.vocab_path(level),
+            output_dir=constants.output_dir_for(level),
+            tatoeba_db_path=constants.TATOEBA_DB,
+            limit=limit,
+        )
+
+    if args.mode in ("all", "ai", "usage"):
         print(f"Running usage generation for N{level} (limit={limit}, batch={args.batch})")
         usage_pipeline.run(level=level, limit=limit, batch_size=args.batch)
-
-    if args.mode == "context":
-        run_context(level=level, limit=limit)
 
 if __name__ == "__main__":
     main()
