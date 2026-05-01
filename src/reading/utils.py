@@ -1,15 +1,12 @@
 # src/reading/utils.py
-"""
-Utility functions for Japanese reading analysis.
-No external deps beyond stdlib + jamdict.
-"""
 from __future__ import annotations
 
-# ── Hiragana ranges ──────────────────────────────────────────────────────────
 _HIRAGANA_START = 0x3041
 _HIRAGANA_END   = 0x3096
 _KANJI_START    = 0x4E00
 _KANJI_END      = 0x9FFF
+_KATAKANA_START = 0x30A1
+_KATAKANA_END   = 0x30F6
 
 def is_hiragana(ch: str) -> bool:
     return _HIRAGANA_START <= ord(ch) <= _HIRAGANA_END
@@ -17,20 +14,29 @@ def is_hiragana(ch: str) -> bool:
 def is_kanji(ch: str) -> bool:
     return _KANJI_START <= ord(ch) <= _KANJI_END
 
+def is_katakana(ch: str) -> bool:
+    return _KATAKANA_START <= ord(ch) <= _KATAKANA_END
+
 def is_pure_hiragana(text: str) -> bool:
     return bool(text) and all(is_hiragana(ch) for ch in text)
 
 
-# ── Mora-level helpers ───────────────────────────────────────────────────────
-# Small kana that attach to the previous character (not independent morae)
-# Note: sokuon 'っ' is an independent mora and must NOT be merged here.
+def kata_to_hira(text: str) -> str:
+    return "".join(chr(ord(ch) - 0x60) if is_katakana(ch) else ch for ch in text)
+
+
+def strip_kun_marker(kun: str) -> str | None:
+    if not kun:
+        return None
+    if kun.startswith("-"):
+        return None
+    normalized = kata_to_hira(kun.split(".", 1)[0])
+    return normalized or None
+
+
 _SMALL_KANA = set("ぁぃぅぇぉゃゅょ")
 
 def split_morae(text: str) -> list[str]:
-    """
-    Split hiragana string into morae (音節).
-    'しゅくしょう' -> ['しゅ', 'く', 'しょ', 'う']
-    """
     morae: list[str] = []
     i = 0
     while i < len(text):
@@ -47,14 +53,7 @@ def mora_length(text: str) -> int:
     return len(split_morae(text))
 
 
-# ── Okurigana extraction ─────────────────────────────────────────────────────
 def get_okurigana(word: str) -> str:
-    """
-    Return trailing hiragana suffix of a word (okurigana).
-    '詰まる' -> 'まる'
-    '軟らかい' -> 'らかい'
-    '基準'   -> ''
-    """
     result = []
     for ch in reversed(word):
         if is_hiragana(ch):
@@ -67,7 +66,6 @@ def extract_kanji_chars(word: str) -> list[str]:
     return [ch for ch in word if is_kanji(ch)]
 
 
-# ── Phonetic feature flags ───────────────────────────────────────────────────
 def has_sokuon(reading: str) -> bool:
     return "っ" in reading
 
@@ -75,99 +73,107 @@ def has_yoon(reading: str) -> bool:
     return any(ch in reading for ch in ("ゃ", "ゅ", "ょ"))
 
 def has_long_vowel_marker(reading: str) -> bool:
-    """ー (katakana prolonged sound mark) sometimes appears in loanword furigana."""
     return "ー" in reading
 
 
-# ── Mora substitution table ──────────────────────────────────────────────────
-# Groups of perceptually similar morae — used for "swap-one-mora" generation.
-# Each group contains sounds that learners commonly confuse.
-_MORA_CONFUSION_GROUPS: list[list[str]] = [
-    # ka-row
-    ["か", "が", "か"],
-    ["き", "ぎ", "き"],
-    ["く", "ぐ", "く"],
-    ["け", "げ", "け"],
-    ["こ", "ご", "こ"],
-    # sa-row
-    ["さ", "ざ", "さ"],
-    ["し", "じ", "し"],
-    ["す", "ず", "す"],
-    ["せ", "ぜ", "せ"],
-    ["そ", "ぞ", "そ"],
-    # ta-row
-    ["た", "だ", "た"],
-    ["ち", "じ", "ぢ"],
-    ["つ", "づ", "ず"],
-    ["て", "で", "て"],
-    ["と", "ど", "と"],
-    # na-row (confusable with ma/ra in listening)
-    ["な", "に", "ぬ", "ね", "の"],
-    # ha-row
-    ["は", "ば", "ぱ"],
-    ["ひ", "び", "ぴ"],
-    ["ふ", "ぶ", "ぷ"],
-    ["へ", "べ", "ぺ"],
-    ["ほ", "ぼ", "ぽ"],
-    # ma-row
-    ["ま", "も", "む", "め", "み"],
-    # ra-row (confusable with na/da)
-    ["ら", "だ", "な"],
-    ["り", "に", "ぢ"],
-    ["る", "ぬ", "づ"],
-    ["れ", "ね", "で"],
-    ["ろ", "の", "ど"],
-    # ya-row / yoon bases
-    ["や", "ゃ"],
-    ["ゆ", "ゅ"],
-    ["よ", "ょ"],
-    # long-vowel endings
-    ["ん", "う", "い"],
-    # short vowels
-    ["あ", "お"],
-    ["い", "え"],
-    ["う", "お"],
-]
-
-# Build char -> set-of-substitutes map
-_MORA_SUB_MAP: dict[str, list[str]] = {}
-for _group in _MORA_CONFUSION_GROUPS:
-    for _m in _group:
-        existing = _MORA_SUB_MAP.setdefault(_m, [])
-        for _other in _group:
-            if _other != _m and _other not in existing:
-                existing.append(_other)
-
-def get_mora_substitutes(mora: str) -> list[str]:
-    """Return list of morae that could be confused with *mora*."""
-    return _MORA_SUB_MAP.get(mora, [])
+_VOICED_TO_UNVOICED = {
+    "が": "か", "ぎ": "き", "ぐ": "く", "げ": "け", "ご": "こ",
+    "ざ": "さ", "じ": "し", "ず": "す", "ぜ": "せ", "ぞ": "そ",
+    "だ": "た", "ぢ": "ち", "づ": "つ", "で": "て", "ど": "と",
+    "ば": "は", "び": "ひ", "ぶ": "ふ", "べ": "へ", "ぼ": "ほ",
+    "ぱ": "は", "ぴ": "ひ", "ぷ": "ふ", "ぺ": "へ", "ぽ": "ほ",
+}
+_UNVOICED_TO_VOICED = {
+    "か": "が", "き": "ぎ", "く": "ぐ", "け": "げ", "こ": "ご",
+    "さ": "ざ", "し": "じ", "す": "ず", "せ": "ぜ", "そ": "ぞ",
+    "た": "だ", "ち": "ぢ", "つ": "づ", "て": "で", "と": "ど",
+    "は": "ば", "ひ": "び", "ふ": "ぶ", "へ": "べ", "ほ": "ぼ",
+}
 
 
-# ── Similarity scoring ───────────────────────────────────────────────────────
-def phonetic_similarity(a: str, b: str) -> float:
-    """
-    Return a [0, 1] score of how phonetically similar two readings are.
-    Higher = more confusable = better distractor.
-    """
-    if a == b:
-        return 1.0
+def _replace_initial_mora(mora: str, mapping: dict[str, str]) -> str | None:
+    if not mora:
+        return None
+    head = mora[0]
+    if head not in mapping:
+        return None
+    return mapping[head] + mora[1:]
 
-    ma = split_morae(a)
-    mb = split_morae(b)
 
-    # Must be same mora-length (hard constraint enforced elsewhere, but score 0 if not)
-    if len(ma) != len(mb):
+def apply_rendaku(mora: str) -> str | None:
+    return _replace_initial_mora(mora, _UNVOICED_TO_VOICED)
+
+
+def remove_rendaku(mora: str) -> str | None:
+    return _replace_initial_mora(mora, _VOICED_TO_UNVOICED)
+
+
+def toggle_chouon(reading: str) -> list[str]:
+    variants: set[str] = set()
+    if not reading:
+        return []
+
+    if reading.endswith(("う", "い")) and len(reading) > 1:
+        variants.add(reading[:-1])
+
+    morae = split_morae(reading)
+    if not morae:
+        return []
+
+    last = morae[-1]
+    if last in {"しょ", "じょ", "ちょ", "きょ", "ぎょ", "ひょ", "ぴょ", "みょ", "りょ", "にょ"}:
+        variants.add(reading + "う")
+    elif last in {"せ", "ぜ", "て", "で", "け", "げ", "へ", "べ", "ぺ"}:
+        variants.add(reading + "い")
+    elif last in {"こ", "ご", "そ", "ぞ", "と", "ど", "ほ", "ぼ", "ぽ", "お", "ろ", "も", "の"}:
+        variants.add(reading + "う")
+
+    return [variant for variant in variants if variant != reading]
+
+
+def toggle_sokuon(reading: str) -> list[str]:
+    variants: set[str] = set()
+    if not reading:
+        return []
+
+    if "っ" in reading:
+        index = reading.index("っ")
+        variants.add(reading[:index] + reading[index + 1:])
+        if index + 1 < len(reading):
+            variants.add(reading[:index] + "つ" + reading[index + 1:])
+        return [variant for variant in variants if variant != reading]
+
+    morae = split_morae(reading)
+    for index, mora in enumerate(morae):
+        if mora and mora[0] in {"か", "き", "く", "け", "こ", "さ", "し", "す", "せ", "そ", "た", "ち", "つ", "て", "と", "ぱ", "ぴ", "ぷ", "ぺ", "ぽ", "は", "ひ", "ふ", "へ", "ほ"}:
+            variants.add("".join(morae[:index] + ["っ" + mora] + morae[index + 1:]))
+
+    return [variant for variant in variants if variant != reading]
+
+
+def kanji_distractor_score(correct: str, candidate: str, source: str) -> float:
+    if not correct or not candidate or candidate == correct:
         return 0.0
 
-    n = len(ma)
-    matches = sum(1 for x, y in zip(ma, mb) if x == y)
+    source_bonus = {
+        "permutation": 0.9,
+        "trap": 0.8,
+        "db_fallback": 0.5,
+    }.get(source, 0.4)
 
-    # Edge matches weighted more (first/last mora most salient in listening)
+    correct_morae = split_morae(correct)
+    candidate_morae = split_morae(candidate)
+    if not correct_morae or not candidate_morae:
+        return source_bonus
+
+    shared = sum(1 for left, right in zip(correct_morae, candidate_morae) if left == right)
+    shared_ratio = shared / max(len(correct_morae), len(candidate_morae))
+
     edge_bonus = 0.0
-    if ma[0] == mb[0]:
-        edge_bonus += 0.15
-    if ma[-1] == mb[-1]:
-        edge_bonus += 0.10
+    if correct_morae[0] == candidate_morae[0]:
+        edge_bonus += 0.08
+    if correct_morae[-1] == candidate_morae[-1]:
+        edge_bonus += 0.08
 
-    base = matches / n
-    return min(1.0, base + edge_bonus)
+    length_bonus = 0.06 if len(correct_morae) == len(candidate_morae) else max(0.0, 0.06 - (0.02 * abs(len(correct_morae) - len(candidate_morae))))
+    return round(source_bonus + (0.2 * shared_ratio) + edge_bonus + length_bonus, 6)

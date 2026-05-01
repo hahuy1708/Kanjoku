@@ -12,7 +12,7 @@ import os
 import random
 from pathlib import Path
 
-from src.reading.distractors import get_reading_distractors
+from src.reading.distractors import get_last_reading_distractor_report, get_reading_distractors
 
 
 def run_reading(
@@ -49,6 +49,10 @@ def run_reading(
             continue
 
         distractors = get_reading_distractors(word, furigana, count=3)
+        report = get_last_reading_distractor_report()
+        if report:
+            debug_text = ", ".join(f"{row['reading']}[{row['source']}]" for row in report)
+            print(f"  [DEBUG] {word}({furigana}) -> {debug_text}")
 
         if len(distractors) < 3:
             print(f"  [WARN] Only {len(distractors)} distractors for {word}({furigana}), skipping")
