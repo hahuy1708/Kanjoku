@@ -4,6 +4,7 @@ from src import constants
 from src.reading.quiz import run_reading
 from src.context.quiz import run_context
 from src.usage import pipeline as usage_pipeline
+from src.writing.quiz import run_writing
 
 def parse_args():
     p = argparse.ArgumentParser(description="J-Learning Quiz Generator System")
@@ -11,13 +12,14 @@ def parse_args():
     p.add_argument("--limit", type=int, default=0, help="Limit number of words to process (0 = no limit)")
     p.add_argument(
         "--mode",
-        choices=("all", "local", "reading", "context", "ai", "usage"),
+        choices=("all", "local", "reading", "context", "writing", "ai", "usage"),
         default="all",
         help=(
-            "all     = reading + context + ai usage\n"
-            "local   = reading + context (no LLM)\n"
+            "all     = reading + context + writing + ai usage\n"
+            "local   = reading + context + writing (no LLM)\n"
             "reading = only reading quiz\n"
             "context = only context quiz\n"
+            "writing = only writing quiz\n"
             "ai      = only usage quiz (LLM)\n"
         ),
     )
@@ -47,6 +49,10 @@ def main():
             tatoeba_db_path=constants.TATOEBA_DB,
             limit=limit,
         )
+
+    if args.mode in ("all", "local", "writing"):
+        print(f"Running writing quiz for N{level} (limit={limit})")
+        run_writing(level=level, limit=limit)
 
     if args.mode in ("all", "ai", "usage"):
         print(f"Running usage generation for N{level} (limit={limit}, batch={args.batch})")
