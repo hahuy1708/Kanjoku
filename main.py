@@ -1,5 +1,13 @@
 # main.py
 import argparse
+import sys
+
+# Reconfigure stdout/stderr to use UTF-8 to prevent UnicodeEncodeError on Windows
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 from src import constants
 from src.reading.quiz import run_reading
 from src.context.quiz import run_context

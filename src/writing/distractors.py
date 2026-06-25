@@ -2,15 +2,12 @@
 """
 Distractor generation for the writing (漢字書き) quiz.
 
-Strategy (three priority levels, matching JLPT exam style):
-  1. Homophones (同音異義語) — same furigana reading, different kanji.
-     These are the best distractors because JLPT exams use them exclusively.
-  2. Near-homophones — same mora count, different reading/kanji.
-     Used when there are not enough true homophones.
-  3. JLPT vocab fallback — random kanji words from the same vocab list.
+Two tiers only:
+  1. JMdict Homophones  — same full-word reading, different kanji  (best quality)
+  2. Kanjidic2 Swap     — swap one kanji character with a homophonous character
 
-JMdict SQLite path is resolved once at module level via Jamdict.
-A new connection is opened per call to stay thread-safe.
+If fewer than 3 distractors are found after both tiers, the word is skipped
+by the caller (quiz.py). No near-homophones, no vocab fallback.
 """
 from __future__ import annotations
 
@@ -20,44 +17,48 @@ import sqlite3
 from functools import lru_cache
 
 from jamdict import Jamdict
+from src.reading.kanji_reading import decompose_word, KanjiSegment
 
-# ── Module-level DB path (resolved once) ─────────────────────────────────────
+_KANJI_RE = re.compile(r"[一-龯]")
+
+
+# ── DB connections ────────────────────────────────────────────────────────────
+
 @lru_cache(maxsize=1)
-def _get_db_path() -> str:
+def _jmdict_path() -> str:
     return Jamdict().jmdict.ds.path
 
 
-def _open_conn() -> sqlite3.Connection:
-    """Open a fresh read-only connection to the JMdict SQLite database."""
-    conn = sqlite3.connect(_get_db_path())
+@lru_cache(maxsize=1)
+def _kd2_path() -> str:
+    return Jamdict().kd2.ds.path
+
+
+def _jmdict_conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(_jmdict_path())
     conn.execute("PRAGMA query_only = ON")
     return conn
 
 
-# ── Kanji character range helper ──────────────────────────────────────────────
-_KANJI_RE = re.compile(r"[一-龯]")
+def _kd2_conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(_kd2_path())
+    conn.execute("PRAGMA query_only = ON")
+    return conn
 
 
-def _has_kanji(text: str) -> bool:
-    return bool(_KANJI_RE.search(text))
+def _hira_to_kata(text: str) -> str:
+    return "".join(
+        chr(ord(ch) + 0x60) if 0x3041 <= ord(ch) <= 0x3096 else ch
+        for ch in text
+    )
 
 
-# ── Strategy 1: homophones ────────────────────────────────────────────────────
+# ── Tier 1: JMdict homophones ─────────────────────────────────────────────────
 
-def get_homophones(reading: str, exclude_word: str, count: int) -> list[str]:
+def _get_homophones(reading: str, exclude_word: str, count: int) -> list[str]:
     """
-    Query JMdict for kanji words that share *exactly* the same reading as the
-    answer word but have different kanji representation.
-
-    Parameters
-    ----------
-    reading      : exact hiragana reading of the answer (e.g. "きかい")
-    exclude_word : the correct kanji word to exclude   (e.g. "機会")
-    count        : max number of results to return
-
-    Returns
-    -------
-    List of distractor kanji strings (may be shorter than *count*).
+    Kanji words in JMdict that share exactly the same reading as the answer word.
+    Example: 機会(きかい) → 機械, 器械
     """
     sql = """
         SELECT DISTINCT k.text
@@ -70,149 +71,181 @@ def get_homophones(reading: str, exclude_word: str, count: int) -> list[str]:
         LIMIT ?
     """
     try:
-        conn = _open_conn()
+        conn = _jmdict_conn()
         try:
             rows = conn.execute(sql, (reading, exclude_word, count)).fetchall()
-            return [row[0] for row in rows if row and row[0]]
+            return [r[0] for r in rows if r and r[0]]
         finally:
             conn.close()
     except sqlite3.OperationalError:
         return []
 
 
-# ── Strategy 2: near-homophones ───────────────────────────────────────────────
+# ── Tier 2: Kanjidic2 kanji swap ──────────────────────────────────────────────
 
-def get_near_homophones(reading: str, exclude_word: str, count: int) -> list[str]:
+def _jmdict_readings_for_char(kanji_char: str) -> list[str]:
     """
-    Query JMdict for kanji words whose reading has the *same mora length* as
-    *reading* but is itself different — a softer fallback when homophones are
-    scarce.
-
-    Parameters
-    ----------
-    reading      : hiragana reading of the answer
-    exclude_word : the correct kanji word to exclude
-    count        : max number of results
-
-    Returns
-    -------
-    List of distractor kanji strings.
-    """
-    sql = """
-        SELECT DISTINCT k.text
-        FROM Kanji k
-        JOIN Kana kn ON kn.idseq = k.idseq
-        WHERE length(kn.text) = ?
-          AND kn.text != ?
-          AND k.text != ?
-          AND k.text GLOB '*[一-龯]*'
-        ORDER BY RANDOM()
-        LIMIT ?
+    Get all single-character readings from JMdict for a given kanji.
+    This handles rendaku and other phonetic variants that Kanjidic2 may not
+    list directly — e.g. 雨 has 'あめ' in Kanjidic2 but appears as 'あま'
+    in compounds like 雨戸(あまど). JMdict single-char entries cover both.
     """
     try:
-        conn = _open_conn()
+        conn = _jmdict_conn()
         try:
-            rows = conn.execute(
-                sql, (len(reading), reading, exclude_word, count)
-            ).fetchall()
-            return [row[0] for row in rows if row and row[0]]
+            sql = """
+                SELECT DISTINCT kn.text FROM Kanji k
+                JOIN Kana kn ON kn.idseq = k.idseq
+                WHERE k.text = ?
+                LIMIT 20
+            """
+            rows = conn.execute(sql, (kanji_char,)).fetchall()
+            return [r[0] for r in rows if r[0]]
         finally:
             conn.close()
     except sqlite3.OperationalError:
         return []
 
 
-# ── Strategy 3: vocab fallback ────────────────────────────────────────────────
-
-def get_vocab_fallback(
-    exclude_word: str,
-    vocab_data: list[dict],
-    count: int,
-) -> list[str]:
+def _kd2_alts_for_reading(reading: str, exclude_char: str) -> list[str]:
     """
-    Last-resort pool: pick kanji words from the current JLPT vocab list.
-
-    Filters:
-    - Must differ from *exclude_word*
-    - Must not be a pure-kana word (word != furigana)
-    - Must contain at least one kanji character
-
-    Parameters
-    ----------
-    exclude_word : the correct answer word to exclude
-    vocab_data   : full vocab list for the current JLPT level
-    count        : max number of results
-
-    Returns
-    -------
-    Shuffled list of up to *count* candidate words.
+    Find alternative kanji characters from Kanjidic2 that share the given reading.
+    Sorted by frequency (most common first) so swaps are plausible.
+    Accepts both hiragana and katakana, and kunyomi with okurigana (e.g. い.く).
     """
-    pool: list[str] = []
-    for entry in vocab_data:
-        word = entry.get("word", "")
-        furigana = entry.get("furigana", "")
-        if not word:
-            continue
-        if word == exclude_word:
-            continue
-        if word == furigana:  # pure kana — no kanji to write
-            continue
-        if not _has_kanji(word):
-            continue
-        pool.append(word)
+    kata = _hira_to_kata(reading)
+    sql = """
+        SELECT DISTINCT c.literal
+        FROM character c
+        JOIN reading r ON r.gid = c.ID
+        WHERE c.literal != ?
+          AND r.r_type IN ('ja_on', 'ja_kun')
+          AND (
+            r.value = ?
+            OR r.value = ?
+            OR r.value LIKE ?
+            OR r.value LIKE ?
+          )
+        ORDER BY
+          CASE WHEN c.freq IS NOT NULL AND c.freq != '' THEN 0 ELSE 1 END,
+          CAST(c.freq AS INTEGER) ASC,
+          CAST(c.grade AS INTEGER) DESC,
+          c.ID ASC
+    """
+    try:
+        conn = _kd2_conn()
+        try:
+            rows = conn.execute(
+                sql,
+                (exclude_char, reading, kata, reading + ".%", kata + ".%"),
+            ).fetchall()
+            return [r[0] for r in rows if r[0]]
+        finally:
+            conn.close()
+    except sqlite3.OperationalError:
+        return []
 
-    random.shuffle(pool)
-    return pool[:count]
+
+def _get_swap_candidates(word: str, furigana: str) -> list[str]:
+    """
+    Decompose word into kanji segments, then for each kanji character try
+    all its readings (decompose_word reading + JMdict readings, to cover
+    rendaku variants) and collect alternative kanji from Kanjidic2.
+
+    Candidates are interleaved across positions so a single problematic
+    character doesn't dominate the output.
+
+    Example: 題名(だいめい) → 代名, 題明, 台名 …
+    """
+    segments = decompose_word(word, furigana)
+    if not segments:
+        return []
+
+    # For each kanji position, collect alternative characters
+    alts_by_pos: dict[int, list[str]] = {}
+    for idx, seg in enumerate(segments):
+        if not isinstance(seg, KanjiSegment):
+            continue
+
+        # All readings to probe: the one from decompose + JMdict single-char
+        readings_to_try: set[str] = {seg.reading}
+        readings_to_try.update(_jmdict_readings_for_char(seg.kanji))
+
+        seen_chars: set[str] = {seg.kanji}
+        alts: list[str] = []
+        for r in readings_to_try:
+            for ch in _kd2_alts_for_reading(r, seg.kanji):
+                if ch not in seen_chars:
+                    seen_chars.add(ch)
+                    alts.append(ch)
+
+        if alts:
+            alts_by_pos[idx] = alts
+
+    if not alts_by_pos:
+        return []
+
+    # Interleave: rank 0 from pos 0, rank 0 from pos 1, rank 1 from pos 0 …
+    candidates: list[str] = []
+    seen_words: set[str] = {word}
+    max_rank = max(len(v) for v in alts_by_pos.values())
+
+    for rank in range(max_rank):
+        for idx in sorted(alts_by_pos.keys()):
+            alts = alts_by_pos[idx]
+            if rank >= len(alts):
+                continue
+            new_parts = [
+                alts[rank] if j == idx
+                else (seg.kanji if isinstance(seg, KanjiSegment) else seg.text)
+                for j, seg in enumerate(segments)
+            ]
+            new_word = "".join(new_parts)
+            if new_word not in seen_words:
+                seen_words.add(new_word)
+                candidates.append(new_word)
+
+    return candidates
 
 
-# ── Combined distractor engine ────────────────────────────────────────────────
+# ── Public API ────────────────────────────────────────────────────────────────
 
 def get_kanji_distractors(
     word: str,
     reading: str,
-    vocab_data: list[dict],
+    vocab_data: list[dict],  # unused, kept for API compatibility with quiz.py
     count: int = 3,
 ) -> list[str]:
     """
-    Generate *count* unique kanji distractors for a writing quiz item using
-    the three-tier priority strategy described in the module docstring.
+    Return up to *count* kanji distractors for a writing quiz item.
 
-    Parameters
-    ----------
-    word       : the correct kanji answer (e.g. "機会")
-    reading    : the hiragana reading     (e.g. "きかい")
-    vocab_data : full JLPT vocab list (used for fallback)
-    count      : number of distractors required (default 3)
+    Tier 1 — JMdict homophones (same reading, different kanji word).
+              Highest quality: tests exactly what JLPT writing questions test.
+    Tier 2 — Kanjidic2 swap (replace one kanji character with a homophone).
+              Used only when tier 1 is insufficient.
 
-    Returns
-    -------
-    Shuffled list of *count* distractor strings, or fewer if the combined
-    strategies cannot produce enough candidates.
+    Returns fewer than *count* items if both tiers are exhausted.
+    The caller must skip the word in that case.
     """
     seen: set[str] = {word}
     candidates: list[str] = []
 
-    # ── Tier 1: homophones ────────────────────────────────────────────────────
-    for item in get_homophones(reading, word, count * 3):
+    # Tier 1: JMdict homophones
+    for item in _get_homophones(reading, word, count * 4):
         if item not in seen:
             seen.add(item)
             candidates.append(item)
+        if len(candidates) >= count:
+            break
 
-    # ── Tier 2: near-homophones ───────────────────────────────────────────────
+    # Tier 2: Kanjidic2 swap — only if tier 1 didn't give enough
     if len(candidates) < count:
-        needed = (count - len(candidates)) * 3
-        for item in get_near_homophones(reading, word, needed):
+        for item in _get_swap_candidates(word, reading):
             if item not in seen:
                 seen.add(item)
                 candidates.append(item)
-
-    # ── Tier 3: vocab fallback ────────────────────────────────────────────────
-    if len(candidates) < count:
-        needed = (count - len(candidates)) * 3
-        for item in get_vocab_fallback(word, vocab_data, needed):
-            if item not in seen:
-                seen.add(item)
-                candidates.append(item)
+            if len(candidates) >= count:
+                break
 
     random.shuffle(candidates)
     return candidates[:count]

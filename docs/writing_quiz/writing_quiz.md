@@ -19,21 +19,20 @@ vocab JSON  →  word(kanji) + furigana(hiragana)
                      │
               replace word → 【furigana】  →  display sentence with hiragana reading
                      │
-              JMdict distractor engine
+              JMdict + Kanjidic2 distractor engine
               ┌─────────────────────────────────────────┐
-              │ 1. homophones (同音異義語) ← best option │
+              │ 1. JMdict Homophones (同音異義語)        │
               │    same furigana but different kanji    │
-              │ 2. same length reading, different kanji │
-              │ 3. Fallback: JLPT vocab list            │
+              │ 2. Kanjidic2 Kanji Swap                 │
+              │    phonetically identical (swap kanji)  │
               └─────────────────────────────────────────┘
                      │
               shuffle → 4 choices + answer_index
 
 ```
 
-- homophones (同音異義語) query JMdict -> same furigana but different kanji. This is the best option for distractors and JLPT exam also use this method
--  If there are not enough homophones, the engine will look for other words with the same length reading but different kanji. 
--  If there are still not enough distractors, it will fall back to using a JLPT vocab list to find additional options.
+- **JMdict Homophones**: Same furigana but different kanji. Best option for whole-word homophones (e.g., `機会` -> `機械`).
+- **Kanjidic2 Kanji Swap**: Decompose word using `decompose_word`, find alternative kanji with same pronunciation from Kanjidic2 (e.g. `題名` -> `代名`, `題明`), and swap them. Extremely effective for compounds with rare whole-word homophones.
 
 ## Output format
 
@@ -66,7 +65,7 @@ vocab JSON  →  word(kanji) + furigana(hiragana)
 src/writing/
 ├── __init__.py
 ├── quiz.py           # Main function to run the quiz
-├── distractors.py    # All logic for generating distractors (3 priority strategies)
+├── distractors.py    # All logic for generating distractors (2 strategies)
 └── sentences.py      # Contains make_hiragana_sentence() and string processing helpers
 ```
 
@@ -83,75 +82,7 @@ Open connection per call via `sqlite3.connect(_DB_PATH)` to avoid thread issues.
 
 ---
 
-### Function: `make_hiragana_sentence(sentence, word, furigana) → str | None`
-
-1. Check `word in sentence` → return `None` if not found
-2. `sentence.replace(word, f"【{furigana}】", 1)` — replace first occurrence only
-3. Return the replaced string
-
----
-
-### Function: `get_homophones(reading, exclude_word, count) → list[str]`
-
-Query JMdict for kanji words sharing the same reading:
-
-```sql
-SELECT DISTINCT k.text
-FROM Kanji k
-JOIN Kana kn ON kn.idseq = k.idseq
-WHERE kn.text = ?              -- same reading
-  AND k.text != ?              -- not the answer word
-  AND k.text GLOB '*[一-龯]*'  -- must contain kanji
-ORDER BY RANDOM()
-LIMIT ?
-```
-
-Wrap in `try/except sqlite3.OperationalError` in case table `Kanji` does not exist → return `[]`.
-
----
-
-### Function: `get_near_homophones(reading, exclude_word, count) → list[str]`
-
-Fallback when homophones are insufficient. Same query but match reading **length** instead of exact reading:
-
-```sql
-SELECT DISTINCT k.text
-FROM Kanji k
-JOIN Kana kn ON kn.idseq = k.idseq
-WHERE length(kn.text) = ?      -- same mora count
-  AND kn.text != ?             -- different reading
-  AND k.text != ?              -- not the answer word
-  AND k.text GLOB '*[一-龯]*'
-ORDER BY RANDOM()
-LIMIT ?
-```
-
----
-
-### Function: `get_vocab_fallback(exclude_word, vocab_data, count) → list[str]`
-
-Last resort. Filter `vocab_data` list for entries where:
-- `entry["word"] != exclude_word`
-- `entry["word"] != entry["furigana"]` — has kanji (not pure kana)
-- `re.search(r'[一-龯]', entry["word"])` — contains kanji character
-
-Shuffle and return first `count` items.
-
----
-
-### Function: `get_kanji_distractors(word, reading, vocab_data, count=3) → list[str]`
-
-Combine all three strategies in priority order:
-
-1. Call `get_homophones(reading, word, count * 3)`
-2. If `len < count` → extend with `get_near_homophones(reading, word, count * 3)`, deduplicating
-3. If still `len < count` → extend with `get_vocab_fallback(word, vocab_data, count * 3)`, deduplicating
-
-Shuffle the combined list, return first `count` items.
-
----
-
-### Function: `run_writing(level, limit=None)`
+### `run_writing(level, limit=None)`
 
 **Input:** `constants.vocab_path(level)` → load vocab JSON  
 **Output:** `constants.output_dir_for(level)/writing.json`
