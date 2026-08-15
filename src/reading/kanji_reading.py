@@ -54,7 +54,14 @@ _MATCH_DEVOICE = str.maketrans(
 
 
 def _normalize_for_match(text: str) -> str:
-    return kata_to_hira(text).replace("っ", "つ").translate(_MATCH_DEVOICE)
+    normalized = kata_to_hira(text).replace("っ", "つ").translate(_MATCH_DEVOICE)
+    normalized = normalized.replace("あま", "あめ")
+    return normalized
+
+
+def _normalize_for_storage(text: str) -> str:
+    normalized = _normalize_for_match(text)
+    return normalized.replace("あま", "あめ") if normalized.startswith("あま") else normalized
 
 
 def _normalize_reading(value: object) -> str | None:
@@ -65,6 +72,7 @@ def _normalize_reading(value: object) -> str | None:
     if raw.startswith("-"):
         return None
     normalized = raw.split(".", 1)[0]
+    normalized = normalized.replace("-", "")
     normalized = kata_to_hira(normalized)
     if not normalized or not is_pure_hiragana(normalized):
         return None
@@ -103,6 +111,40 @@ def get_kanji_readings(kanji_char: str) -> KanjiReadings:
     )
 
 
+@lru_cache(maxsize=4096)
+def _jmdict_single_char_readings(kanji_char: str) -> tuple[str, ...]:
+    if not kanji_char or len(kanji_char) != 1 or not is_kanji(kanji_char):
+        return ()
+
+    try:
+        conn = sqlite3.connect(_db_path())
+        conn.execute("PRAGMA query_only = ON")
+        try:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT kn.text
+                FROM Kanji k
+                JOIN Kana kn ON kn.idseq = k.idseq
+                WHERE k.text = ?
+                LIMIT 50
+                """,
+                (kanji_char,),
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.OperationalError:
+        return ()
+
+    readings: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        normalized = _normalize_reading(row[0])
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            readings.append(_normalize_for_storage(normalized))
+    return tuple(readings)
+
+
 def _candidate_readings_for_kanji(kanji_char: str, allow_long_kun: bool = True) -> tuple[str, ...]:
     readings = get_kanji_readings(kanji_char)
     merged: list[str] = []
@@ -110,9 +152,18 @@ def _candidate_readings_for_kanji(kanji_char: str, allow_long_kun: bool = True) 
     for reading in readings.on + readings.kun:
         if not allow_long_kun and reading in readings.kun and mora_length(reading) > 1:
             continue
+        normalized = _normalize_for_storage(reading)
+        if normalized not in seen:
+            seen.add(normalized)
+            merged.append(normalized)
+
+    for reading in _jmdict_single_char_readings(kanji_char):
+        if not allow_long_kun and mora_length(reading) > 1:
+            continue
         if reading not in seen:
             seen.add(reading)
             merged.append(reading)
+
     return tuple(merged)
 
 
@@ -146,9 +197,10 @@ def _read_word_segments(word: str, furigana: str) -> tuple[KanjiSegment | Litera
                     return (LiteralSegment(text=literal),) + rest
             return None
 
-        single_kanji_word = sum(1 for ch in word if is_kanji(ch)) == 1
-        allow_long_kun = single_kanji_word or (word_index + 1 < len(word) and not is_kanji(word[word_index + 1]))
-        readings = _candidate_readings_for_kanji(ch, allow_long_kun=allow_long_kun)
+        # Long kunyomi such as うえ, あめ, and しるし are essential for
+        # compound words like 目上, 雨戸, and 矢印, so we should always try
+        # them during decomposition instead of filtering them out.
+        readings = _candidate_readings_for_kanji(ch, allow_long_kun=True)
         if not readings:
             return None
 
